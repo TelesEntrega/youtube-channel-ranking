@@ -1,0 +1,56 @@
+﻿======================================================================
+VALIDA├ç├âO: @google
+======================================================================
+
+­ƒöì Resolvendo channel ID...
+   Ô£ô Channel ID: UCK8sQmJBp8GCxrOtXWBpyEA
+
+­ƒôí Buscando dados oficiais da API...
+   Ô£ô Canal: Google
+   Ô£ô Total Views (API): 6,159,893,599 (6.16B)
+   Ô£ô Total V├¡deos (API): 2,528
+
+­ƒÆ¥ Buscando dados calculados do sistema...
+   Ô£ô Total Views (Calculado): 6,148,282,035 (6.15B)
+   Ô£ô Total V├¡deos (Coletados): 2,516
+
+­ƒôè COMPARA├ç├âO DE TOTAIS:
+   API (reported):          6,159,893,599 (6.16B)
+   Sistema (calculated):    6,148,282,035 (6.15B)
+   Diferen├ºa absoluta:      11,611,564 (11.61M)
+   Diverg├¬ncia:             0.19% Ô£à EXCELENTE
+
+­ƒô╣ CONTAGEM DE V├ìDEOS:
+   API (reported):          2,528 v├¡deos
+   Sistema (collected):     2,516 v├¡deos
+   Missing:                 12 v├¡deos (0.5%) Ô£à
+
+­ƒÄ¼ BREAKDOWN POR TIPO:
+   Shorts:  947 v├¡deos | 1,834,037,173 (1.83B) (29.8%)
+   Longos:  1,569 v├¡deos | 4,314,244,862 (4.31B) (70.2%)
+
+­ƒÅå TOP 5 V├ìDEOS MAIS VISTOS:
+   1. ­ƒô▒ Short - 447,308,615 (447.31M) views
+      Meet AI Mode - Try a whole new way to search...
+   2. ­ƒÄÑ Long - 373,939,407 (373.94M) views
+      2025 ÔÇö Year in Search...
+   3. ­ƒÄÑ Long - 356,853,434 (356.85M) views
+      Google ÔÇö 25 Years in Search: The Most Searched...
+   4. ­ƒÄÑ Long - 347,203,044 (347.20M) views
+      2024 ÔÇö Year in Search...
+   5. ­ƒÄÑ Long - 297,852,104 (297.85M) views
+      2022 ÔÇö Year in Search...
+
+======================================================================
+­ƒôï RESULTADO DA VALIDA├ç├âO:
+
+   Ô£à Diverg├¬ncia de views < 5%
+   Ô£à V├¡deos coletados ÔëÑ 95%
+   Ô£à Shorts detectados corretamente (todos Ôëñ60s)
+
+----------------------------------------------------------------------
+   ­ƒÄë VALIDA├ç├âO: APROVADO Ô£à
+
+   O sistema est├í gerando rankings matematicamente corretos!
+   Diverg├¬ncias s├úo normais devido a v├¡deos privados/removidos.
+======================================================================

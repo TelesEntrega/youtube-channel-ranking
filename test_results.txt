@@ -1,0 +1,55 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.7, pytest-7.4.3, pluggy-1.6.0 -- C:\Users\Rankine\AppData\Local\Programs\Python\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Rankine\Documents\Ranking Gorgonoid
+plugins: anyio-4.12.0
+collecting ... collected 7 items
+
+tests/test_ranking_enhancements.py::test_views_reais_calculation PASSED  [ 14%]
+tests/test_ranking_enhancements.py::test_efficiency_calculation PASSED   [ 28%]
+tests/test_ranking_enhancements.py::test_badge_explosao_shorts PASSED    [ 42%]
+tests/test_ranking_enhancements.py::test_badge_alta_eficiencia PASSED    [ 57%]
+tests/test_ranking_enhancements.py::test_badge_volume_massivo FAILED     [ 71%]
+tests/test_ranking_enhancements.py::test_badge_conteudo_prateleira FAILED [ 85%]
+tests/test_ranking_enhancements.py::test_editorial_cutoff PASSED         [100%]
+
+================================== FAILURES ===================================
+__________________________ test_badge_volume_massivo __________________________
+
+    def test_badge_volume_massivo():
+        """Test Volume Massivo badge (\u2265P75 video count)"""
+        # Simulated ranking data
+        video_counts = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        # P75 = 75th percentile = 77.5 (approximately 78)
+        import statistics
+        p75 = statistics.quantiles(video_counts, n=4)[2]  # 3rd quartile
+    
+        # Should get badge: 80 >= 77.5
+        channel_videos = 80
+>       assert channel_videos >= p75
+E       assert 80 >= 82.5
+
+tests\test_ranking_enhancements.py:118: AssertionError
+_______________________ test_badge_conteudo_prateleira ________________________
+
+    def test_badge_conteudo_prateleira():
+        """Test Conte·do de Prateleira badge (high volume + low efficiency)"""
+        # Setup
+        video_counts = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        efficiencies = [10_000, 15_000, 20_000, 25_000, 30_000, 35_000, 40_000, 45_000, 50_000, 55_000]
+    
+        import statistics
+        p75_volume = statistics.quantiles(video_counts, n=4)[2]
+        avg_efficiency = sum(efficiencies) / len(efficiencies)
+    
+        # Should get badge: 80 videos >= P75 AND 15,000 efficiency < avg
+        channel_videos = 80
+        channel_efficiency = 15_000
+>       assert channel_videos >= p75_volume and channel_efficiency < avg_efficiency
+E       assert (80 >= 82.5)
+
+tests\test_ranking_enhancements.py:142: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_ranking_enhancements.py::test_badge_volume_massivo - assert...
+FAILED tests/test_ranking_enhancements.py::test_badge_conteudo_prateleira - a...
+========================= 2 failed, 5 passed in 0.16s =========================
