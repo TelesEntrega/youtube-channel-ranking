@@ -1,0 +1,52 @@
+# Lista de Patrocínios (Marcas)
+# Formato: Nome do Canal | Marca
+# Exemplo: Renato Cariani | Max Titanium
+# Se não tiver marca, deixe em branco ou coloque ?
+
+Bitelo | Growth
+Renato Cariani | Growth
+Gnomo | Growth
+Toguro | Growth
+Laércio Refundini | Growth
+Luiz Salles | Growth
+Tenente Breno | Max Titanium
+Leandro Twin | Growth
+Gorgonoid | Growth
+Léo Stronda | Growth
+Jorlan Vieira | Max Titanium
+Eduardo Correa | Max Titanium
+Caike Pro | Growth
+Pacho | Max Titanium
+Coach Rubens | Under Labz
+Paulo Muzy | Max Titanium
+Léo Araújo | Growth
+Victor Lelis | Growth
+Jason | Growth
+Cavalo | Growth
+Carlos Analister | Growth
+Fábio Giga | Growth
+Zancanelli | Max Titanium
+Ganley | Integral
+Ramon | Max Titanium
+Rafael Brandão | Max Titanium
+Felipe Franco | Growth
+Horse Power Pro | Adaptogen
+Itinho Lima | Sem Patrocínio
+Gabriel Arones | Growth
+Pobre Louco | FTW
+William Martins | FTW
+Notícias Maromba | Growth
+Monstercast | Growth
+Monstercast Cortes | Growth
+Brasil Bodybuilding News | Integral
+Miguel Chain | Growth
+Igor Kennedy | Growth
+Maromba News | New Millen
+Censurado | Integral
+Pantera | Adaptogen
+Growth TV | Growth
+Max Titanium | Max Titanium
+Integral Médica | Integral
+Adaptogen | Adaptogen
+Ironberg | Sem Patrocínio
+Soldiers Nutrition | Soldiers

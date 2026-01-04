@@ -196,8 +196,12 @@ class Collector:
     
     def collect_snapshots_for_all_channels(self, snapshot_date: str = None) -> Dict:
         """
-        Collect current view counts for all videos and save as snapshots.
+        Collect current view counts for all videos AND channel statistics, saving as snapshots.
         This should be run daily (manually or via scheduler) to enable delta-based rankings.
+        
+        Collects:
+        - Video snapshots (for Delta per Video - Modo Gorgonoid Conteúdo)
+        - Channel snapshots (for Delta Canal - Métrica Gorgonoid Planilha)
         
         Args:
             snapshot_date: Date for snapshot (default: today, YYYY-MM-DD format)
@@ -208,7 +212,7 @@ class Collector:
         if snapshot_date is None:
             snapshot_date = datetime.now().strftime('%Y-%m-%d')
         
-        logger.info(f"🔵 Starting video snapshot collection for {snapshot_date}")
+        logger.info(f"🔵 Starting synchronized snapshot collection for {snapshot_date}")
         
         cursor = self.db.conn.cursor()
         cursor.execute("SELECT DISTINCT channel_id, title FROM channels")
@@ -218,6 +222,7 @@ class Collector:
         total_channels = len(channels)
         errors = 0
         skipped_channels = 0
+        channels_with_stats = 0
         
         for i, row in enumerate(channels, 1):
             channel_id = row['channel_id']
@@ -237,7 +242,7 @@ class Collector:
                 # Fetch current stats from YouTube API (in batches of 50)
                 video_details = self.youtube.get_videos_details(video_ids)
                 
-                # Save snapshots
+                # Save video snapshots
                 saved_count = 0
                 for video in video_details:
                     self.db.save_video_snapshot(
@@ -248,19 +253,42 @@ class Collector:
                     saved_count += 1
                     total_videos += 1
                 
-                logger.info(f"✅ Saved {saved_count}/{len(video_ids)} snapshots for {channel_title}")
+                logger.info(f"✅ Saved {saved_count}/{len(video_ids)} video snapshots for {channel_title}")
+                
+                # PARTE 1: Fetch and save channel statistics (synchronized with video snapshots)
+                try:
+                    channel_stats = self.youtube.get_channel_statistics(channel_id)
+                    if channel_stats:
+                        self.db.save_channel_snapshot(
+                            channel_id=channel_id,
+                            snapshot_date=snapshot_date,
+                            view_count=channel_stats['view_count'],
+                            subscriber_count=channel_stats.get('subscriber_count'),
+                            video_count=channel_stats.get('video_count')
+                        )
+                        channels_with_stats += 1
+                        logger.info(f"📊 Saved channel stats for {channel_title}: {channel_stats['view_count']:,} views")
+                    else:
+                        logger.warning(f"No channel statistics returned for {channel_title}")
+                except Exception as e_stats:
+                    logger.error(f"Failed to save channel stats for {channel_title}: {e_stats}")
+                    # Continue with other channels even if channel stats fail
                 
             except Exception as e:
                 logger.error(f"❌ Error collecting snapshots for {channel_title}: {e}")
                 errors += 1
                 continue
         
-        logger.info(f"🎯 Snapshot collection complete: {total_videos} videos, {total_channels} channels, {errors} errors, {skipped_channels} skipped")
+        logger.info(f"🎯 Snapshot collection complete:")
+        logger.info(f"   Videos: {total_videos} snapshots")
+        logger.info(f"   Channels: {channels_with_stats}/{total_channels} with stats")
+        logger.info(f"   Errors: {errors}, Skipped: {skipped_channels}")
         
         return {
             'status': 'success' if errors < total_channels else 'partial',
             'snapshot_date': snapshot_date,
             'videos_snapshotted': total_videos,
+            'channels_snapshotted': channels_with_stats,
             'channels_processed': total_channels - skipped_channels,
             'channels_skipped': skipped_channels,
             'errors': errors

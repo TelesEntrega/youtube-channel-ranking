@@ -32,6 +32,7 @@ class Database:
         """Create database schema."""
         cursor = self.conn.cursor()
         
+        
         # Tabela de canais
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS channels (
@@ -41,10 +42,21 @@ class Database:
                 custom_url TEXT,
                 country TEXT,
                 uploads_playlist_id TEXT,
+                brand TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
+
+        # Migration: Add brand column if not exists (for existing dbs)
+        try:
+            cursor.execute("SELECT brand FROM channels LIMIT 1")
+        except:
+            logger.info("Migrating schema: Adding 'brand' column to channels table")
+            try:
+                cursor.execute("ALTER TABLE channels ADD COLUMN brand TEXT")
+            except Exception as e:
+                logger.error(f"Migration failed: {e}")
         
         # Tabela de vídeos
         cursor.execute("""
@@ -137,6 +149,19 @@ class Database:
                 updated_at = datetime('now')
         """, (channel_id, title, handle, custom_url, country, uploads_playlist_id))
         self.conn.commit()
+
+    def update_channel_brand(self, channel_title: str, brand: str):
+        """Update brand for a channel by title."""
+        cursor = self.conn.cursor()
+        # Clean inputs
+        brand = brand.strip() if brand and brand.strip() not in ['?', '-'] else None
+        
+        cursor.execute("UPDATE channels SET brand = ? WHERE title = ?", (brand, channel_title))
+        if cursor.rowcount > 0:
+            logger.info(f"Updated brand for '{channel_title}' to '{brand}'")
+            self.conn.commit()
+        else:
+            logger.warning(f"Channel not found for brand update: {channel_title}")
         logger.debug(f"Upserted channel: {channel_id} - {title}")
     
     def upsert_videos(self, videos: List[Dict]):
@@ -318,6 +343,43 @@ class Database:
             'unique_dates': unique_dates,
             'latest_date': self.get_latest_snapshot_date()
         }
+    
+    def save_channel_snapshot(self, channel_id: str, snapshot_date: str, 
+                             view_count: int, subscriber_count: int = None, video_count: int = None):
+        """
+        Save channel statistics snapshot (for Delta Canal - Gorgonoid Planilha).
+        Uses reported_channel_views field to store official YouTube channel viewCount.
+        """
+        cursor = self.conn.cursor()
+        try:
+            # For now, store in reported_channel_views field
+            # In future migrations, consider adding dedicated columns
+            cursor.execute("""
+                INSERT INTO channel_snapshots (
+                    channel_id, snapshot_date, 
+                    reported_channel_views,
+                    total_views, shorts_views, long_views,
+                    total_videos, shorts_videos, long_videos
+                )
+                VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0)
+                ON CONFLICT(channel_id, snapshot_date) DO UPDATE SET
+                    reported_channel_views = excluded.reported_channel_views
+            """, (channel_id, snapshot_date, view_count))
+            self.conn.commit()
+            logger.debug(f"Saved channel snapshot for {channel_id} on {snapshot_date}: {view_count:,} views")
+        except Exception as e:
+            logger.error(f"Error saving channel snapshot for {channel_id}: {e}")
+            raise
+    
+    def get_channel_snapshot(self, channel_id: str, snapshot_date: str) -> Optional[int]:
+        """Get channel viewCount for a specific date."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT reported_channel_views FROM channel_snapshots
+            WHERE channel_id = ? AND snapshot_date = ?
+        """, (channel_id, snapshot_date))
+        row = cursor.fetchone()
+        return row['reported_channel_views'] if row else None
     
     def delete_channel(self, channel_id: str):
         """Delete channel and all associated data."""

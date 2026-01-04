@@ -423,57 +423,114 @@ def page_comparison():
     
     channel_options = {row['channel_id']: row['title'] for row in channels}
     
-    col1, col2 = st.columns([2, 1])
+    # Auto-select ALL channels
+    selected_channels = list(channel_options.keys())
+    
+    st.info(f"📊 **{len(selected_channels)} canais** serão incluídos no ranking")
+    
+    col1, col2 = st.columns(2)
     
     with col1:
-        selected_channels = st.multiselect(
-            "Selecione os canais para comparar",
-            options=list(channel_options.keys()),
-            format_func=lambda x: channel_options[x]
-        )
-    
-    with col2:
-        # Date range presets
+        # Monthly period selector
+        import calendar
+        now = pd.Timestamp.now()
+        
+        # Generate last 6 months options
+        month_options = ["Personalizado"]
+        for i in range(6):
+            date = now - pd.DateOffset(months=i)
+            month_options.append(f"{calendar.month_name[date.month]} {date.year}")
+        
         preset = st.selectbox(
             "Período",
-            options=["Últimos 7 dias", "Últimos 14 dias", "Últimos 30 dias", "Personalizado"],
-            index=2
+            options=month_options,
+            index=1  # Current month by default
         )
         
         if preset == "Personalizado":
             start_date = st.date_input("Data Inicial", value=pd.Timestamp.now() - pd.Timedelta(days=30))
             end_date = st.date_input("Data Final", value=pd.Timestamp.now())
         else:
-            days_map = {"Últimos 7 dias": 7, "Últimos 14 dias": 14, "Últimos 30 dias": 30}
-            days = days_map[preset]
-            end_date = pd.Timestamp.now()
-            start_date = end_date - pd.Timedelta(days=days)
-            st.caption(f"📅 {start_date.strftime('%Y-%m-%d')} até {end_date.strftime('%Y-%m-%d')}")
+            # Parse selected month
+            parts = preset.split()
+            month_name = parts[0]
+            year = int(parts[1])
+            month_num = list(calendar.month_name).index(month_name)
+            
+            # Get first and last day of month
+            start_date = pd.Timestamp(year, month_num, 1)
+            last_day = calendar.monthrange(year, month_num)[1]
+            end_date = pd.Timestamp(year, month_num, last_day)
+            
+            st.caption(f"📅 {start_date.strftime('%d/%m/%Y')} até {end_date.strftime('%d/%m/%Y')}")
     
-    # MODE SELECTOR (Dual Ranking System)
+    
+    with col2:
+        # MODE SELECTOR (Triple Ranking System - Gorgonoid Complete)
+        mode = st.radio(
+            "**Metodologia:**",
+            options=[
+                "📊 Gorgonoid Canal (Delta Canal)",
+                "🎬 Gorgonoid Conteúdo (Delta Vídeo)",
+                "📈 Análise de Views (Publicado)"
+            ],
+            index=0,  # Default to Delta Canal
+            help="Canal (total), Conteúdo (vídeos), ou Views Publicadas"
+        )
+    
     st.markdown("---")
-    mode = st.radio(
-        "**Selecione a Metodologia de Ranking:**",
-        options=[
-            "📊 Modo Gorgonoid (Crescimento Real)",
-            "📈 Análise de Views do Período (Conteúdo Publicado)"
-        ],
-        index=1,  # Default to Published Content (works immediately)
-        horizontal=True
-    )
     
-    if st.button("Gerar Ranking"):
+    if st.button("🏆 Gerar Ranking", type="primary", use_container_width=True):
         if not selected_channels:
-            st.warning("Selecione pelo menos um canal.")
+            st.warning("Nenhum canal encontrado no banco de dados.")
             return
             
         if start_date > end_date:
             st.error("Data final deve ser maior que data inicial")
             return
 
-        # DUAL RANKING LOGIC
-        if "Gorgonoid" in mode:
-            # ============ MODO 1: GORGONOID (CRESCIMENTO REAL) ============
+
+        # TRIPLE RANKING LOGIC
+        if "Canal" in mode:
+            # ============ MODO 1: DELTA CANAL (PLANILHA GORGONOID) ============
+            ranking_data = ranking.get_comparison_data_delta_channel(
+                selected_channels, 
+                start_date.strftime('%Y-%m-%d'), 
+                end_date.strftime('%Y-%m-%d')
+            )
+            
+            # Check if we have snapshot data
+            if ranking_data:
+                missing_count = sum(1 for r in ranking_data if r.get('missing_snapshots', False))
+                
+                if missing_count == len(ranking_data):
+                    st.error("⚠️ **Sem dados de snapshot de canal!**\n\nO modo Delta Canal requer snapshots diários. Clique em 'Coletar Snapshots Agora' e aguarde 1+ dia.")
+                    return
+                
+                if missing_count > 0:
+                    st.warning(f"⚠️ {missing_count}/{len(ranking_data)} canais sem snapshots completos")
+            
+            mode_name = "Gorgonoid Canal (Delta Canal)"
+            column_map = {
+                "ant": "Ant (Views Início)",
+                "atual": "Atual (Views Fim)",
+                "reais": "Reais (Crescimento)",
+                "percent": "% Crescimento"
+            }
+            explanation = (
+                "ℹ️ **Metodologia Gorgonoid (Delta Canal - Planilha)**\n\n"
+                "Este ranking usa o **viewCount total do canal** (da API oficial do YouTube). "
+                "Métricas:\n"
+                "- **Ant:** Views totais do canal no início do período\n"
+                "- **Atual:** Views totais do canal no fim do período\n"
+                "- **Reais:** Crescimento absoluto (Atual - Ant)\n"
+                "- **%:** Percentual de crescimento\n\n"
+                "⚠️ Requer snapshots diários (coletar primeiro snapshot, aguardar 1+ dia)."
+            )
+            use_delta_canal_columns = True
+            
+        elif "Conteúdo" in mode:
+            # ============ MODO 2: DELTA CONTEÚDO (SOMA DE VÍDEOS) ============
             ranking_data = ranking.get_comparison_data_delta(
                 selected_channels, 
                 start_date.strftime('%Y-%m-%d'), 
@@ -486,26 +543,28 @@ def page_comparison():
                 total_skipped = sum(r.get('videos_skipped', 0) for r in ranking_data)
                 
                 if total_tracked == 0:
-                    st.error("⚠️ **Sem dados de snapshot suficientes!**\n\nO Modo Gorgonoid requer snapshots históricos. Clique em 'Coletar Snapshots Agora' e aguarde 7+ dias.")
+                    st.error("⚠️ **Sem dados de snapshot de vídeos!**\n\nO Modo Conteúdo requer snapshots históricos. Clique em 'Coletar Snapshots Agora' e aguarde 7+ dias.")
                     return
                 
                 st.caption(f"📊 Rastreando {total_tracked:,} vídeos | {total_skipped:,} vídeos sem snapshots completos")
             
-            mode_name = "Gorgonoid (Crescimento Real)"
+            mode_name = "Gorgonoid Conteúdo (Delta por Vídeo)"
             column_map = {
                 "views_shorts": "Crescimento Shorts",
                 "views_longos": "Crescimento Longos",
                 "views_totais": "Crescimento Total"
             }
             explanation = (
-                "ℹ️ **Metodologia Gorgonoid (Crescimento Real)**\n\n"
-                "Este ranking mede o **CRESCIMENTO** de views no período. "
+                "ℹ️ **Metodologia Gorgonoid (Delta por Vídeo)**\n\n"
+                "Este ranking mede o **CRESCIMENTO** de views somando o delta de cada vídeo. "
                 "Para cada vídeo do canal (independente de quando foi publicado), calculamos: `views_fim - views_inicio`. "
-                "Reflete o desempenho real do canal no período.\n\n"
+                "Reflete o desempenho real do conteúdo no período.\n\n"
                 "⚠️ Requer snapshots diários (aguarde 7+ dias após primeira coleta)."
             )
+            use_delta_canal_columns = False
+            
         else:
-            # ============ MODO 2: ANÁLISE DE VIEWS (CONTEÚDO PUBLICADO) ============
+            # ============ MODO 3: ANÁLISE DE VIEWS (CONTEÚDO PUBLICADO) ============
             ranking_data = ranking.get_comparison_data(
                 selected_channels, 
                 start_date.strftime('%Y-%m-%d'), 
@@ -524,67 +583,146 @@ def page_comparison():
                 "Cada vídeo carrega suas views acumuladas desde a publicação até hoje. "
                 "Métrica de volume de produção."
             )
+            use_delta_canal_columns = False
         
         if not ranking_data:
             st.warning("Nenhum dado encontrado. Verifique o período selecionado.")
             return
 
-        # Calculate statistics (same for both modes)
-        df_calc = pd.DataFrame(ranking_data)
-        p75_efficiency = df_calc['media_por_conteudo'].quantile(0.75) if not df_calc.empty else 0
-        p75_volume = df_calc['total_videos'].quantile(0.75) if not df_calc.empty else 0
-        avg_efficiency = df_calc['media_por_conteudo'].mean() if not df_calc.empty else 0
+        # Calculate statistics (Modes with Shorts/Longos breakdown)
+        if not use_delta_canal_columns:
+            df_calc = pd.DataFrame(ranking_data)
+            p75_efficiency = df_calc['media_por_conteudo'].quantile(0.75) if not df_calc.empty and 'media_por_conteudo' in df_calc.columns else 0
+            p75_volume = df_calc['total_videos'].quantile(0.75) if not df_calc.empty and 'total_videos' in df_calc.columns else 0
+            avg_efficiency = df_calc['media_por_conteudo'].mean() if not df_calc.empty and 'media_por_conteudo' in df_calc.columns else 0
+        else:
+            # Delta Canal doesn't need these stats
+            p75_efficiency = 0
+            p75_volume = 0
+            avg_efficiency = 0
+
+        # Helper to get logo path
+        def get_brand_logo(brand_name):
+            if not brand_name or brand_name in ['?', 'Sem Patrocínio']:
+                return ""
+                
+            safe_name = brand_name.lower().replace(" ", "_").replace(".", "")
+            logo_path = f"assets/logos/{safe_name}.png"
+            
+            # Check if exists (relative to current script execution)
+            if os.path.exists(logo_path):
+                # Using st.image directly in table is tricky, using base64 or serving static
+                # For simplicity in dataframe, we just return name. 
+                # But for custom table, we can return HTML img tag if using markdown
+                # Here we will try to just show the name with emoji first, or better yet
+                # We will render a custom HTML table or use st.dataframe with column config if available
+                return logo_path
+            return None
 
         # Build display table
         table_rows = []
         for i, item in enumerate(ranking_data, 1):
-            ch_id = item['channel_id']
-            title = channel_options.get(ch_id, ch_id)
+            row = {}
             
-            total_videos = item['total_videos']
-            views_total = item['views_period']
-            shorts_views = item['shorts_views']
-            long_views = item['long_views']
-            media_por_conteudo = item['media_por_conteudo']
+            # Column Order: Pos -> Marca -> Canal -> ...
+            row['#'] = i
             
-            # Badge system (same logic for both modes)
-            badges = []
+            # Brand
+            brand = item.get('brand', '')
+            row['Marca'] = brand if brand else "-"
             
-            if views_total > 0 and (shorts_views / views_total) >= 0.60:
-                badges.append("🔥 Explosão de Shorts")
+            # Channel
+            row['Canal'] = item.get('title', item.get('channel_id', 'Canal Desconhecido'))
             
-            if media_por_conteudo > avg_efficiency and media_por_conteudo > 0:
-                badges.append("⚡ Alta Eficiência")
+            if use_delta_canal_columns:
+                # Delta Canal Columns
+                row['Ant'] = f"{item.get('ant', 0):,.0f}".replace(",", ".")
+                row['Atual'] = f"{item.get('atual', 0):,.0f}".replace(",", ".")
+                row['Reais'] = f"{item.get('reais', 0):,.0f}".replace(",", ".")
                 
-            if total_videos >= p75_volume and total_videos > 0:
-                badges.append("🧱 Volume Massivo")
-            
-            if total_videos >= p75_volume and media_por_conteudo < avg_efficiency and total_videos > 0:
-                badges.append("📚 Conteúdo de Prateleira")
+                pct = item.get('percent', 0)
+                color = "green" if pct > 0 else "red" if pct < 0 else "gray"
+                row['%'] = pct  # Keep raw for formatting later or pre-format
+                row['Formatted_%'] = f"{pct:+.2f}%"
 
-            table_rows.append({
-                "Rank": i,
-                "Canal": title,
-                "Shorts": str(item['shorts_count']),
-                "Longos": str(item['long_count']),
-                "Total Conteúdos": str(total_videos),
-                column_map["views_shorts"]: format_number(shorts_views),
-                column_map["views_longos"]: format_number(long_views),
-                column_map["views_totais"]: format_number(views_total),
-                "Badges": " ".join(badges)
-            })
+            else:
+                # Content Columns - Separated Shorts and Longs
+                shorts_count = item.get('shorts_periodo', item.get('shorts_count', 0))
+                longs_count = item.get('longos_periodo', item.get('long_count', 0))
+                total_videos = item.get('total_videos', 0)
+                
+                row['Vídeos'] = total_videos
+                row['Shorts'] = shorts_count  # Separate column for short count
+                row['Longos'] = longs_count   # Separate column for long count
+
+                # Views Columns - define variables
+                views_sh = item.get('views_sh_periodo', item.get('shorts_views', 0))
+                views_lo = item.get('views_lo_periodo', item.get('long_views', 0))
+                views_total = item.get('views_total_periodo', item.get('views_period', 0))
+                
+                row['Views Shorts'] = f"{views_sh:,.0f}".replace(",", ".")
+                row['Views Longos'] = f"{views_lo:,.0f}".replace(",", ".")
+                row['Views Total'] = f"{views_total:,.0f}".replace(",", ".")
+
+            table_rows.append(row)
             
         st.subheader(f"🏆 Ranking: {mode_name}")
         st.info(explanation)
         
-        df = pd.DataFrame(table_rows)
-        st.dataframe(
-            df[["Rank", "Canal", "Shorts", "Longos", "Total Conteúdos", 
-                column_map["views_shorts"], column_map["views_longos"], 
-                column_map["views_totais"], "Badges"]],
-            use_container_width=True,
-            hide_index=True
-        )
+        # Safety check
+        if not table_rows:
+            st.warning("⚠️ Nenhum dado para exibir. Verifique se há snapshots disponíveis para o período selecionado.")
+            return
+        
+        # Create DataFrame safely
+        try:
+            df = pd.DataFrame(table_rows)
+        except Exception as e:
+            st.error(f"❌ Erro ao criar tabela: {e}")
+            st.write("Debug - Dados recebidos:")
+            st.write(table_rows[:3] if len(table_rows) > 0 else "Vazio")
+            return
+        
+        # Display logic
+        if use_delta_canal_columns:
+            st.dataframe(
+                df,
+                column_config={
+                    "#": st.column_config.NumberColumn("Posição", width="small"),
+                    "Marca": st.column_config.TextColumn("Marca", help="Patrocinador"),
+                    "Canal": st.column_config.TextColumn("Canal", width="medium"),
+                    "Ant": st.column_config.TextColumn("Anterior"),
+                    "Atual": st.column_config.TextColumn("Atual"),
+                    "Reais": st.column_config.TextColumn("Crescimento (Reais)"),
+                    "%": st.column_config.ProgressColumn(
+                        "Crescimento (%)", 
+                        format="%.2f%%", 
+                        min_value=-10, 
+                        max_value=100
+                    ),
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+        else:
+            st.dataframe(
+                df,
+                column_config={
+                    "#": st.column_config.NumberColumn("Posição", width="small"),
+                    "Marca": st.column_config.TextColumn("Marca", help="Patrocinador", width="small"),
+                    "Canal": st.column_config.TextColumn("Canal", width="medium"),
+                    "Vídeos": st.column_config.NumberColumn("Vídeos", width="small"),
+                    "Shorts": st.column_config.NumberColumn("Shorts", help="Quantidade de Shorts publicados", width="small"),
+                    "Longos": st.column_config.NumberColumn("Longos", help="Quantidade de vídeos longos publicados", width="small"),
+                    "Views Shorts": st.column_config.TextColumn("Views Shorts"),
+                    "Views Longos": st.column_config.TextColumn("Views Longos"),
+                    "Views Total": st.column_config.TextColumn("Views Totais", width="medium"),
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+        
+        st.caption(f"Dados atualizados em: {ranking_data[0].get('last_update', 'Hoje') if ranking_data else 'Hoje'}")
     
     elif not selected_channels:
         st.info("👆 Selecione pelo menos um canal para começar.")

@@ -93,6 +93,82 @@ def main():
         db.close()
 
 
+def perform_weekly_backup():
+    """Perform automatic backup to cloud storage (runs only on Sundays)."""
+    import shutil
+    from pathlib import Path
+    
+    # Check if today is Sunday (weekday 6)
+    if datetime.now().weekday() != 6:
+        logger.info("Skipping backup (not Sunday)")
+        return
+    
+    logger.info("=" * 80)
+    logger.info("PERFORMING WEEKLY BACKUP")
+    logger.info("=" * 80)
+    
+    # Detect cloud storage
+    cloud_paths = [
+        Path.home() / "Google Drive" / "Meu Drive",
+        Path.home() / "Google Drive" / "My Drive",
+        Path.home() / "Google Drive",
+        Path.home() / "GoogleDrive",
+        Path("G:/Meu Drive"),
+        Path("G:/My Drive"),
+        Path.home() / "OneDrive"
+    ]
+    
+    cloud_path = None
+    cloud_type = ""
+    
+    for path in cloud_paths:
+        if path.exists():
+            cloud_path = path
+            if "Google" in str(path) or str(path).startswith("G:"):
+                cloud_type = "Google Drive"
+            else:
+                cloud_type = "OneDrive"
+            break
+    
+    if not cloud_path:
+        logger.warning("No cloud storage found, skipping backup")
+        return
+    
+    # Create backup directory
+    backup_dir = cloud_path / "Backup Ranking Gorgonoid"
+    backup_dir.mkdir(exist_ok=True)
+    
+    # Backup file name
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    backup_file = backup_dir / f"rankings_backup_{timestamp}.db"
+    
+    # Copy database
+    db_path = Path("data/rankings.db")
+    if db_path.exists():
+        shutil.copy2(db_path, backup_file)
+        size_mb = backup_file.stat().st_size / (1024 * 1024)
+        logger.info(f"✅ Backup created: {backup_file}")
+        logger.info(f"   Size: {size_mb:.2f} MB")
+        logger.info(f"   Destination: {cloud_type}")
+        
+        # Clean old backups (keep last 5)
+        backups = sorted(backup_dir.glob("rankings_backup_*.db"), key=lambda x: x.stat().st_mtime, reverse=True)
+        for old_backup in backups[5:]:
+            old_backup.unlink()
+            logger.info(f"   Removed old backup: {old_backup.name}")
+    else:
+        logger.error("Database file not found!")
+    
+    logger.info("=" * 80)
+
+
 if __name__ == "__main__":
     exit_code = main()
+    
+    # Perform weekly backup after snapshots (Sundays only)
+    try:
+        perform_weekly_backup()
+    except Exception as e:
+        logger.error(f"Backup failed: {e}", exc_info=True)
+    
     sys.exit(exit_code)

@@ -162,6 +162,34 @@ class YouTubeClient:
             logger.error(f"Error getting channel metadata for {channel_id}: {e}")
             return None
     
+    def get_channel_statistics(self, channel_id: str) -> Optional[Dict]:
+        """
+        Get channel statistics for snapshot collection.
+        Returns view_count, subscriber_count, and video_count.
+        """
+        try:
+            request = self.youtube.channels().list(
+                part='statistics',
+                id=channel_id
+            )
+            response = self._api_request_with_retry(request)
+            
+            if not response.get('items'):
+                logger.warning(f"Channel {channel_id} not found")
+                return None
+            
+            statistics = response['items'][0].get('statistics', {})
+            
+            return {
+                'view_count': int(statistics.get('viewCount', 0)),
+                'subscriber_count': int(statistics.get('subscriberCount', 0)) if statistics.get('subscriberCount') else None,
+                'video_count': int(statistics.get('videoCount', 0))
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting channel statistics for {channel_id}: {e}")
+            return None
+    
     def get_all_video_ids(self, uploads_playlist_id: str) -> List[str]:
         """Get all video IDs from uploads playlist with pagination."""
         video_ids = []
@@ -272,71 +300,16 @@ class YouTubeClient:
     @staticmethod
     def _classify_video_score(duration: int, snippet: Dict) -> tuple:
         """
-        Classify video as Short or Long using Surgical Heuristic Scoring (2025).
+        Classify video as Short or Long using DURATION ONLY.
         Returns: (is_short: bool, score: int, reasons: list)
         
-        Methodology:
-        Positive:
-        +2: Duration <= 180s
-        +2: Hashtag #shorts in title/desc/tags
-        +2: Short Description (<= 300 chars)
-        +1: Short Title (<= 70 chars)
-        
-        Negative:
-        -3: Live/Upcoming
-        -3: Timestamps (Chapters)
-        
-        Threshold: Score >= 3 -> SHORT
+        Simple Rule: Duration <= 180 seconds -> SHORT
+        (YouTube Shorts maximum duration: 3 minutes)
         """
-        score = 0
-        reasons = []
+        is_short = (0 < duration <= 180)
+        score = 2 if is_short else 0
+        reasons = [f"Duration: {duration}s"]
         
-        # 1. Duration (+2) - Updated weight
-        if 0 < duration <= 180:
-            score += 2
-            reasons.append("+2 Duration")
-            
-        # 2. Hashtags (+2)
-        title = snippet.get('title', '').replace('\n', ' ').strip()
-        desc = snippet.get('description', '').replace('\n', ' ').strip()
-        tags = [t.lower() for t in snippet.get('tags', [])]
-        
-        # Check text fields
-        title_lower = title.lower()
-        desc_lower = desc.lower()
-        
-        has_hash = '#shorts' in title_lower or '#shorts' in desc_lower or 'shorts' in tags
-        if has_hash:
-            score += 2
-            reasons.append("+2 Hashtag")
-            
-        # 3. Short Description (+2) - New signal
-        if len(desc) <= 300:
-            score += 2
-            reasons.append("+2 Short Desc")
-            
-        # 4. Short Title (+1) - New signal
-        if len(title) <= 70:
-            score += 1
-            reasons.append("+1 Short Title")
-            
-        # 5. Live (-3)
-        live = snippet.get('liveBroadcastContent', 'none')
-        if live in ['live', 'upcoming', 'completed']:
-            score -= 3
-            reasons.append("-3 Live")
-            
-        # 6. Timestamps (-3) - Updated weight
-        # Regex for "00:00" or "0:00" pattern
-        if re.search(r'\b\d{1,2}:\d{2}\b', desc) and len(desc) > 100:
-             # Only penalize if desc is long enough to actually BE a chapter list? 
-             # Or just strictly if present. User said "-3 possui capítulos".
-             # Usually short descriptions don't have chapters. 
-             # If desc <= 300 (+2) AND has timestamps (-3) -> net -1. Good.
-            score -= 3
-            reasons.append("-3 Timestamps")
-            
-        is_short = score >= 3
         return is_short, score, reasons
     
     @staticmethod

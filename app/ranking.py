@@ -35,6 +35,7 @@ class RankingEngine:
                 c.channel_id,
                 c.title,
                 c.handle,
+                c.brand,
                 SUM(v.last_view_count) as total_views,
                 SUM(CASE WHEN v.is_short = 1 THEN v.last_view_count ELSE 0 END) as shorts_views,
                 SUM(CASE WHEN v.is_short = 0 THEN v.last_view_count ELSE 0 END) as long_views,
@@ -53,7 +54,7 @@ class RankingEngine:
             params.append(f"%{search_query}%")
         
         query += """
-            GROUP BY c.channel_id, c.title, c.handle
+            GROUP BY c.channel_id, c.title, c.handle, c.brand
             ORDER BY total_views DESC
             LIMIT ? OFFSET ?
         """
@@ -70,6 +71,7 @@ class RankingEngine:
                 'channel_id': row['channel_id'],
                 'title': row['title'],
                 'handle': row['handle'],
+                'brand': row['brand'],
                 'total_views': row['total_views'] or 0,
                 'shorts_views': row['shorts_views'] or 0,
                 'long_views': row['long_views'] or 0,
@@ -96,7 +98,7 @@ class RankingEngine:
         
         # Get channel info
         cursor.execute("""
-            SELECT channel_id, title, handle, country
+            SELECT channel_id, title, handle, country, brand
             FROM channels
             WHERE channel_id = ?
         """, (channel_id,))
@@ -144,6 +146,7 @@ class RankingEngine:
             'title': channel_row['title'],
             'handle': channel_row['handle'],
             'country': channel_row['country'],
+            'brand': channel_row['brand'],
             'stats': stats,
             'top_video': dict(top_video) if top_video else None,
             'top_short': dict(top_short) if top_short else None,
@@ -281,8 +284,16 @@ class RankingEngine:
             
             # ===============================================================
             
+            # Get channel title and brand
+            cursor.execute("SELECT title, brand FROM channels WHERE channel_id = ?", (channel_id,))
+            ch_row = cursor.fetchone()
+            title = ch_row['title'] if ch_row else channel_id
+            brand = ch_row['brand'] if ch_row else None
+            
             results.append({
                 "channel_id": channel_id,
+                "title": title,
+                "brand": brand,
                 "shorts_views": shorts_views,
                 "long_views": long_views,
                 "views_period": total_views_period,
@@ -336,8 +347,19 @@ class RankingEngine:
         results = []
         
         for channel_id in channel_ids:
-            # Get all videos for this channel (no published_at filter!)
-            cursor.execute("SELECT video_id, is_short FROM videos WHERE channel_id = ?", (channel_id,))
+            # OPTIMIZED: Single query with JOIN to get both snapshots at once
+            cursor.execute("""
+                SELECT 
+                    v.video_id,
+                    v.is_short,
+                    vs_start.view_count as views_start,
+                    vs_end.view_count as views_end
+                FROM videos v
+                LEFT JOIN video_snapshots vs_start ON v.video_id = vs_start.video_id AND vs_start.snapshot_date = ?
+                LEFT JOIN video_snapshots vs_end ON v.video_id = vs_end.video_id AND vs_end.snapshot_date = ?
+                WHERE v.channel_id = ?
+            """, (start_date, end_date, channel_id))
+            
             videos = cursor.fetchall()
             
             shorts_delta = 0
@@ -347,27 +369,10 @@ class RankingEngine:
             videos_with_data = 0
             videos_skipped = 0
             
-            # Create separate cursor for snapshot queries to avoid conflict
-            snapshot_cursor = self.db.conn.cursor()
-            
             for video in videos:
-                video_id = video['video_id']
+                views_start = video['views_start']
+                views_end = video['views_end']
                 is_short = video['is_short']
-                
-                # Get snapshots for start and end dates using separate cursor
-                snapshot_cursor.execute("""
-                    SELECT view_count FROM video_snapshots
-                    WHERE video_id = ? AND snapshot_date = ?
-                """, (video_id, start_date))
-                row_start = snapshot_cursor.fetchone()
-                views_start = row_start['view_count'] if row_start else None
-                
-                snapshot_cursor.execute("""
-                    SELECT view_count FROM video_snapshots
-                    WHERE video_id = ? AND snapshot_date = ?
-                """, (video_id, end_date))
-                row_end = snapshot_cursor.fetchone()
-                views_end = row_end['view_count'] if row_end else None
                 
                 # Skip if we don't have both snapshots
                 if views_start is None or views_end is None:
@@ -404,8 +409,16 @@ class RankingEngine:
             
             # ===========================================================
             
+            # Get channel title and brand
+            cursor.execute("SELECT title, brand FROM channels WHERE channel_id = ?", (channel_id,))
+            ch_row = cursor.fetchone()
+            title = ch_row['title'] if ch_row else channel_id
+            brand = ch_row['brand'] if ch_row else None
+            
             results.append({
                 "channel_id": channel_id,
+                "title": title,
+                "brand": brand,
                 "shorts_views": shorts_delta,
                 "long_views": long_delta,
                 "views_period": total_delta,
@@ -430,5 +443,81 @@ class RankingEngine:
         logger.info(f"Delta ranking calculated for {len(results)} channels between {start_date} and {end_date}")
         
         return results
-
-
+    
+    def get_comparison_data_delta_channel(self, channel_ids: List[str], start_date: str, end_date: str) -> List[Dict]:
+        """
+        Get ranking by CHANNEL DELTA (Ant / Atual / Reais / %) - Métrica Gorgonoid Planilha.
+        
+        This is the "Delta Canal" methodology - uses reported_channel_views from API:
+        - Ant = channel viewCount at start_date
+        - Atual = channel viewCount at end_date
+        - Reais = Atual - Ant
+        - % = (Reais / Ant) * 100
+        
+        For granular analysis (Shorts/Longos breakdown), use get_comparison_data_delta() instead.
+        
+        Args:
+            channel_ids: List of channel IDs to compare
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+        
+        Returns:
+            List of rankings with Ant/Atual/Reais/% metrics, sorted by Reais descending
+        """
+        if not channel_ids:
+            return []
+        
+        cursor = self.db.conn.cursor()
+        results = []
+        
+        for channel_id in channel_ids:
+            # Get channel title and brand
+            cursor.execute("SELECT title, brand FROM channels WHERE channel_id = ?", (channel_id,))
+            ch_row = cursor.fetchone()
+            title = ch_row['title'] if ch_row else channel_id
+            brand = ch_row['brand'] if ch_row else None
+            
+            # Get channel snapshots for start and end dates
+            views_ant = self.db.get_channel_snapshot(channel_id, start_date)
+            views_atual = self.db.get_channel_snapshot(channel_id, end_date)
+            
+            # Skip if we don't have both snapshots
+            if views_ant is None or views_atual is None:
+                logger.warning(f"Channel {channel_id} missing snapshots (Ant: {views_ant}, Atual: {views_atual})")
+                # Add with zeros for diagnostic
+                results.append({
+                    "channel_id": channel_id,
+                    "title": title,
+                    "brand": brand,
+                    "ant": 0,
+                    "atual": 0,
+                    "reais": 0,
+                    "percent": 0.0,
+                    "missing_snapshots": True,
+                    "start_date": start_date,
+                    "end_date": end_date
+                })
+                continue
+            
+            # Calculate Delta Canal metrics
+            reais = max(0, views_atual - views_ant)  # Clamp to 0 if negative
+            percent = (reais / views_ant * 100.0) if views_ant > 0 else 0.0
+            
+            results.append({
+                "channel_id": channel_id,
+                "title": title,
+                "brand": brand,
+                "ant": views_ant,
+                "atual": views_atual,
+                "reais": reais,
+                "percent": percent,
+                "missing_snapshots": False,
+                "start_date": start_date,
+                "end_date": end_date
+            })
+        
+        # Sort by Reais descending
+        results.sort(key=lambda x: x['reais'], reverse=True)
+        
+        logger.info(f"Delta Canal ranking calculated for {len(results)} channels between {start_date} and {end_date}")
+        return results
